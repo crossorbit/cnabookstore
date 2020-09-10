@@ -218,6 +218,7 @@ public interface CouponService {
 ## Pub-Sub
 ```
  구독(Sub) 의 PolicyHandler 설정
+ couponId 사용하여 주문 시 Ordered 이벤트 수신하여 쿠폰 상태 업데이트
  
     @Autowired
     CouponRepository couponRepository;
