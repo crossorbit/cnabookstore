@@ -133,18 +133,149 @@ kubectl -n kafka exec -ti my-kafka-0 -- /usr/bin/kafka-console-consumer --bootst
 
 ## CQRS - myCoupon 로직
 ```
+MyCouponViewHandler.java 통해서 topic 메세지 수신하여 현행화
+
+@Autowired
+    private MyCouponRepository myCouponRepository;
+
+    @StreamListener(KafkaProcessor.INPUT)
+    public void whenCouponCreated_then_CREATE_1 (@Payload CouponCreated couponCreated) {
+        System.out.println("##### whenCouponCreated_then_CREATE_1 start ##### ");
+        try {
+            if (couponCreated.isMe()) {
+                // view 객체 생성
+                MyCoupon myCoupon = new MyCoupon();
+		
+                // view 객체에 이벤트의 Value 를 set 함
+                myCoupon.setCouponId(couponCreated.getCouponId());
+                myCoupon.setCustomerId(couponCreated.getCustomerId());
+                myCoupon.setOrderId(couponCreated.getOrderId());
+                myCoupon.setCouponStatus(couponCreated.getCouponStatus());
+		
+                // view 레파지토리 save
+                myCouponRepository.save(myCoupon);
+            }
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+    }
 ```
 
 ## Req-Res
 ```
+1) external 서비스 내 CouponService.java 추가하여 feignClient 설정
+2) order.java 의 저장 함수 내 로직 추가
+
+<CouponService.java>
+package cnabookstore.order.external;
+
+import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+
+@FeignClient(name="coupon", url="${api.url.coupon}")
+public interface CouponService {
+
+    @RequestMapping(method= RequestMethod.GET, path="/coupons/{couponId}")
+    public Coupon queryCounpon(@PathVariable("couponId") Long couponId);
+}
+
+<Order.java>
+    @PrePersist
+    public void onPrePersist(){
+
+        if("null".equals(orderStatus) || orderStatus == null){
+            orderStatus = "ORDERED";
+        }
+
+        // mappings goes here
+        try {
+            Book book = OrderApplication.applicationContext.getBean(BookService.class)
+                    .queryBook(bookId);
+        }
+        catch(Exception e){
+            orderStatus = "Book_Not_Verified";
+        }
+
+        try {
+            Customer customer = OrderApplication.applicationContext.getBean(CustomerService.class)
+                    .queryCustomer(customerId);
+        }
+        catch(Exception e){
+            orderStatus = "Customer_Not_Verified";
+        }
+    }
 ```
 
 ## Pub-Sub
 ```
+ 구독(Sub) 의 PolicyHandler 설정
+ 
+    @Autowired
+    CouponRepository couponRepository;
+
+    @StreamListener(KafkaProcessor.INPUT)
+    public void wheneverOrdered_UseCoupon(@Payload Ordered ordered){
+
+        if(ordered.isMe()){
+            System.out.println("##### listener ChangeCoupon : " + ordered.toJson());
+
+            Optional<Coupon> couponOptional = couponRepository.findByCouponId(ordered.getCouponId());
+            Coupon coupon = couponOptional.get();
+            coupon.setOrderId(ordered.getOrderId());
+            coupon.setCouponStatus("Used(Not Available)");
+
+            couponRepository.save(coupon);
+
+        }
+    }
 ```
 
 ## Gateway
 ```
+spring:
+  profiles: docker
+  cloud:
+    gateway:
+      routes:
+        - id: order
+          uri: http://order:8080
+          predicates:
+            - Path=/orders/**
+        - id: delivery
+          uri: http://delivery:8080
+          predicates:
+            - Path=/deliveries/**
+        - id: customer
+          uri: http://customer:8080
+          predicates:
+            - Path=/custormers/**,/myPages/**
+        - id: bookInventory
+          uri: http://bookinventory:8080
+          predicates:
+            - Path=/books/**,/deliverables/**,/stockInputs/**
+        - id: coupon
+          uri: http://coupon:8080
+          predicates:
+            - Path=/coupons/**
+        - id: myCoupon
+          uri: http://mycoupon:8080
+          predicates:
+            - Path=/mycoupons/**
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowedOrigins:
+              - "*"
+            allowedMethods:
+              - "*"
+            allowedHeaders:
+              - "*"
+            allowCredentials: true
+
+server:
+  port: 8080
 ```
 
 ## CI/CD
