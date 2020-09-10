@@ -77,18 +77,61 @@
 
 # 이벤트 스토밍 & CNA 모델
 ```
+주문 : https://github.com/crossorbit/bs-order.git
+도서 : https://github.com/crossorbit/bs-bookinventory.git
+게이트웨이 : https://github.com/crossorbit/bs-gateway.git
+쿠폰 : https://github.com/crossorbit/bs-coupon.git
+마이쿠폰 :  https://github.com/crossorbit/bs-mycoupon.git
+
+```
+```
+![Alt text](CNA-model.PNG?raw=true "Optional Title")
 ```
 
 # 구현점검
-## 서비스 기동
+### 모든 서비스 정상 기동 
 ```
+* Httpie Pod 접속
+kubectl exec -it httpie -- bash
+
+* API 
+http http://gateway:8080/customers
+http http://gateway:8080/myPages
+http http://gateway:8080/books
+http http://gateway:8080/deliverables
+http http://gateway:8080/stockInputs
+http http://gateway:8080/orders
+http http://gateway:8080/deliveries
+http http://gateway:8080/coupons
+http http://gateway:8080/mycoupons
 ```
-## Kafka 기동 및 모니터링 Consumer 연결
+
+### Kafka 기동 및 모니터링 용 Consumer 연결
 ```
+kubectl -n kafka exec -ti my-kafka-0 -- /usr/bin/kafka-console-consumer --bootstrap-server my-kafka:9092 --topic cnabookstore --from-beginning
 ```
 
 ## API 테스트
 ```
+ 1) Book
+	(도서등록) http POST http://gateway:8080/books bookName=LondonTour stock=100
+	(재고추가) http POST http://gateway:8080/stockInputs bookId=1 quantity=10 inCharger=CHOI
+	(도서조회) http http://gateway:8080/books
+	(배송대상조회) http http://gateway:8080/deliverables
+	(재고조회) http http://gateway:8080/stockInputs
+ 2) Coupon
+	(쿠폰등록) http POST http://gateway:8080 couponStatus=Registered customerId=1 
+	(쿠폰조회) http http://gateway:8080/coupons/1
+
+ 3) Order 
+	(쿠폰미사용) http POST http://gateway:8080/orders customerId=1 bookId=1 quantity=10 deliveryAddress=Seoul
+	(쿠폰사용) http POST http://gateway:8080/orders customerId=2 bookId=1 quantity=200 deliveryAddress=Wien couponId=2
+	(쿠폰사용) http POST http://gateway:8080/orders customerId=2 bookId=1 quantity=200 deliveryAddress=Wien couponId=1
+	(주문취소 쿠폰사용) http DELETE http://gateway:8080/orders/2
+	(주문조회) http http://gateway:8080/orders/2
+	
+ 4) myCoupon
+	(이력조회) http http://gateway:8080/mycoupons/1
 ```
 
 ## CQRS - myCoupon 로직
@@ -130,16 +173,15 @@ application.yaml 파일 설정 변경
 ### 점검 순서
 ```
 1. HPA 생성 및 설정
-	kubectl autoscale deploy bookinventory --min=1 --max=10 --cpu-percent=30
-	kubectl get hpa bookinventory -o yaml
+	kubectl autoscale deploy coupon --min=1 --max=10 --cpu-percent=50
+	kubectl get hpa coupon -o yaml
 2. 모니터링 걸어놓고 확인
-	kubectl get hpa bookinventory -w
-	watch kubectl get deploy,po
+	kubectl get hpa coupon -w
 3. Siege 실행
-  siege -c10 -t60S -v http://gateway:8080/books/
+  siege -c10 -t60S -v http://gateway:8080/coupons/
 ```
 ### 점검 결과
-![Alt text](images/HPA_test.PNG?raw=true "Optional Title")
+![Alt text](HPA_test.PNG?raw=true "Optional Title")
 
 ## Readiness Probe 점검
 ### 설정 확인
