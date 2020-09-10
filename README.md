@@ -82,11 +82,8 @@
 게이트웨이 : https://github.com/crossorbit/bs-gateway.git
 쿠폰 : https://github.com/crossorbit/bs-coupon.git
 마이쿠폰 :  https://github.com/crossorbit/bs-mycoupon.git
-
 ```
-```
-![Alt text](CNA-Model.PNG?raw=true "Optional Title")
-```
+![Alt text](CNA-model.PNG?raw=true "Optional Title")
 
 # 구현점검
 ### 모든 서비스 정상 기동 
@@ -152,11 +149,87 @@ kubectl -n kafka exec -ti my-kafka-0 -- /usr/bin/kafka-console-consumer --bootst
 
 ## CI/CD
 ```
+dev.azure.com 내 CI/CD 설정. Github Repository 연결 후 Github 소스 수정 시 자동 CI/CD 처리
+```
+### CI
+![Alt text](CI.PNG?raw=true "Optional Title")
+### CD
+![Alt text](CD.PNG?raw=true "Optional Title")
+
+
+
+## Circuit Breaker 점검
+
+```
+Hystrix Command
+	5000ms 이상 Timeout 발생 시 CircuitBearker 발동
+
+CircuitBeaker 발생
+	http http://delivery:8080/selectDeliveryInfo?deliveryId=1
+		- 잘못된 쿼리 수행 시 CircuitBeaker
+		- 10000ms(10sec) Sleep 수행
+		- 5000ms Timeout으로 CircuitBeaker 발동
+		- 10000ms(10sec) 
 ```
 
-## Circuit Breaker
 ```
+실행 결과
+
+root@httpie:/# http http://delivery:8080/selectDeliveryInfo?deliveryId=1
+HTTP/1.1 200 
+Content-Length: 7
+Content-Type: text/plain;charset=UTF-8
+Date: Wed, 09 Sep 2020 04:27:53 GMT
+
+Shipped
+
+root@httpie:/# http http://delivery:8080/selectDeliveryInfo?deliveryId=0
+HTTP/1.1 200 
+Content-Length: 17
+Content-Type: text/plain;charset=UTF-8
+Date: Wed, 09 Sep 2020 04:28:03 GMT
+
+CircuitBreaker!!!
+
+root@httpie:/# http http://delivery:8080/selectDeliveryInfo?deliveryId=1
+HTTP/1.1 200 
+Content-Length: 17
+Content-Type: text/plain;charset=UTF-8
+Date: Wed, 09 Sep 2020 04:28:06 GMT
+
+CircuitBreaker!!!
+
 ```
+
+```
+소스 코드
+
+@GetMapping("/selectDeliveryInfo")
+  @HystrixCommand(fallbackMethod = "fallbackDelivery", commandProperties = {
+          @HystrixProperty(name = "execution.isolation.thread.timeoutInMilliseconds", value = "5000"),
+          @HystrixProperty(name = "circuitBreaker.sleepWindowInMilliseconds", value = "10000")
+  })
+  public String selectDeliveryInfo(@RequestParam long deliveryId) throws InterruptedException {
+
+   if (deliveryId <= 0) {
+    System.out.println("@@@ CircuitBreaker!!!");
+    Thread.sleep(10000);
+    //throw new RuntimeException("CircuitBreaker!!!");
+   } else {
+    Optional<Delivery> delivery = deliveryRepository.findById(deliveryId);
+    return delivery.get().getDeliveryStatus();
+   }
+
+   System.out.println("$$$ SUCCESS!!!");
+   return " SUCCESS!!!";
+  }
+
+ private String fallbackDelivery(long deliveryId) {
+  System.out.println("### fallback!!!");
+  return "CircuitBreaker!!!";
+ }
+```
+
 
 
 ## Autoscale 점검
@@ -182,6 +255,7 @@ application.yaml 파일 설정 변경
 ```
 ### 점검 결과
 안정적인 CPU 상태에서는 Pod가 2개 떠 있으나, 부하 발생 후 HPA 설정 50%를 넘어가면 Pod 확장하면서 안정적으로 부하를 견뎌냄
+
 ![Alt text](HPA_test.PNG?raw=true "Optional Title")
 
 ## Readiness Probe 점검
@@ -220,25 +294,21 @@ Longest transaction:            1.75
 Shortest transaction:           0.00
 ```
 #### 4. Readiness 설정 추가 후 배포
-
-#### 6. Siege 결과 Availability 확인(100%)
+#### 5. Siege 결과 Availability 확인(100%)
 ```
-Lifting the server siege...      done.
-
-Transactions:                    443 hits
+Transactions:                   1201 hits
 Availability:                 100.00 %
-Elapsed time:                 119.60 secs
-Data transferred:               0.51 MB
+Elapsed time:                  59.59 secs
+Data transferred:               0.49 MB
 Response time:                  0.01 secs
-Transaction rate:               3.70 trans/sec
-Throughput:                     0.00 MB/sec
-Concurrency:                    0.04
-Successful transactions:         443
+Transaction rate:              20.15 trans/sec
+Throughput:                     0.01 MB/sec
+Concurrency:                    0.15
+Successful transactions:        1201
 Failed transactions:               0
-Longest transaction:            0.18
+Longest transaction:            0.05
 Shortest transaction:           0.00
- 
-FILE: /var/log/siege.log
+
 ```
 
 ## Liveness Probe 점검
@@ -256,30 +326,30 @@ livenessProbe:
 ### 점검 순서 및 결과
 #### 1. 기동 확인
 ```
-http http://gateway:8080/orders
+http http://gateway:8080/coupons
 ```
 #### 2. 상태 확인
 ```
-oot@httpie:/# http http://order:8080/isHealthy
+oot@httpie:/# http http://coupon:8080/isHealthy
 HTTP/1.1 200 
 Content-Length: 0
-Date: Wed, 09 Sep 2020 02:14:22 GMT
+Date: Thu, 10 Sep 2020 01:41:26 GMT
 ```
 
 #### 3. 상태 변경
 ```
-root@httpie:/# http http://order:8080/makeZombie
+root@httpie:/# http http://coupon:8080/makeZombie
 HTTP/1.1 200 
 Content-Length: 0
-Date: Wed, 09 Sep 2020 02:14:24 GMT
+Date: Thu, 10 Sep 2020 01:41:35 GMT
 ```
 #### 4. 상태 확인
 ```
-root@httpie:/# http http://order:8080/isHealthy
+root@httpie:/# http http://coupon:8080/isHealthy
 HTTP/1.1 500 
 Connection: close
 Content-Type: application/json;charset=UTF-8
-Date: Wed, 09 Sep 2020 02:14:28 GMT
+Date: Thu, 10 Sep 2020 01:41:42 GMT
 Transfer-Encoding: chunked
 
 {
@@ -287,16 +357,16 @@ Transfer-Encoding: chunked
     "message": "zombie.....", 
     "path": "/isHealthy", 
     "status": 500, 
-    "timestamp": "2020-09-09T02:14:28.338+0000"
+    "timestamp": "2020-09-10T01:41:42.338+0000"
 }
 ```
 #### 5. Pod 재기동 확인
 ```
-root@httpie:/# http http://order:8080/isHealthy
-http: error: ConnectionError: HTTPConnectionPool(host='order', port=8080): Max retries exceeded with url: /makeZombie (Caused by NewConnectionError('<requests.packages.urllib3.connection.HTTPConnection object at 0x7f5196111c50>: Failed to establish a new connection: [Errno 111] Connection refused',))
+root@httpie:/# http http://coupons:8080/isHealthy
+http: error: ConnectionError: HTTPConnectionPool(host='coupon', port=8080): Max retries exceeded with url: /makeZombie (Caused by NewConnectionError('<requests.packages.urllib3.connection.HTTPConnection object at 0x7f5196111c50>: Failed to establish a new connection: [Errno 111] Connection refused',))
 
-root@httpie:/# http http://order:8080/isHealthy
+root@httpie:/# http http://coupon:8080/isHealthy
 HTTP/1.1 200 
 Content-Length: 0
-Date: Wed, 09 Sep 2020 02:36:00 GMT
+Date: Thu, 10 Sep 2020 01:43:40 GMT
 ```
