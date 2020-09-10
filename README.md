@@ -188,9 +188,9 @@ application.yaml 파일 설정 변경
 ```
 readinessProbe:
   httpGet:
-    path: '/orders'
+    path: '/coupons'
     port: 8080
-  initialDelaySeconds: 12
+  initialDelaySeconds: 10
   timeoutSeconds: 2
   periodSeconds: 5
   failureThreshold: 10
@@ -198,7 +198,7 @@ readinessProbe:
 ### 점검 순서
 #### 1. Siege 실행
 ```
-siege -c2 -t120S  -v 'http://gateway:8080/orders
+siege -c2 -t120S  -v 'http://gateway:8080/coupons
 ```
 #### 2. Readiness 설정 제거 후 배포
 #### 3. Siege 결과 Availability 확인(100% 미만)
