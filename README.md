@@ -167,26 +167,49 @@ MyCouponViewHandler.java 통해서 topic 메세지 수신하여 현행화
 
 [Coupon 변경]
 1) external 서비스 내 CustomerService.java 추가하여 feignClient 설정
+<CouponService.java>
+	@FeignClient(name="customer", url="${api.url.customer}")
+	public interface CustomerService {
+
+	    @RequestMapping(method= RequestMethod.GET, path="/customers/{customerId}")
+	    public Customer queryCustomer(@PathVariable("customerId") Long customerId);
+
+	}
 2) coupon.java 의 저장 함수 내 로직 추가
+<coupon.java>
+	@PrePersist
+	public void onPrePersist(){
+
+	if("null".equals(orderStatus) || orderStatus == null){
+	    orderStatus = "ORDERED";
+	}
+
+	// mappings goes here
+	try {
+	    Book book = OrderApplication.applicationContext.getBean(BookService.class)
+		    .queryBook(bookId);
+	}
+	catch(Exception e){
+	    orderStatus = "Book_Not_Verified";
+	}
+
+	if(couponId > 0){
+	    Coupon coupon = OrderApplication.applicationContext.getBean(CouponService.class)
+		    .queryCounpon(couponId);
+	}
+	}
 
 [Order 변경]
 1) external 서비스 내 CouponService.java 추가하여 feignClient 설정
 2) order.java 의 저장 함수 내 로직 추가
 
 <CouponService.java>
-package cnabookstore.order.external;
+	@FeignClient(name="coupon", url="${api.url.coupon}")
+	public interface CouponService {
 
-import org.springframework.cloud.openfeign.FeignClient;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-
-@FeignClient(name="coupon", url="${api.url.coupon}")
-public interface CouponService {
-
-    @RequestMapping(method= RequestMethod.GET, path="/coupons/{couponId}")
-    public Coupon queryCounpon(@PathVariable("couponId") Long couponId);
-}
+	    @RequestMapping(method= RequestMethod.GET, path="/coupons/{couponId}")
+	    public Coupon queryCounpon(@PathVariable("couponId") Long couponId);
+	}
 
 <Order.java>
     @PrePersist
@@ -195,22 +218,9 @@ public interface CouponService {
         if("null".equals(orderStatus) || orderStatus == null){
             orderStatus = "ORDERED";
         }
-
-        // mappings goes here
-        try {
-            Book book = OrderApplication.applicationContext.getBean(BookService.class)
-                    .queryBook(bookId);
-        }
-        catch(Exception e){
-            orderStatus = "Book_Not_Verified";
-        }
-
-        try {
-            Customer customer = OrderApplication.applicationContext.getBean(CustomerService.class)
-                    .queryCustomer(customerId);
-        }
-        catch(Exception e){
-            orderStatus = "Customer_Not_Verified";
+	
+        Customer customer = OrderApplication.applicationContext.getBean(CustomerService.class)
+	   .queryCustomer(customerId);
         }
     }
 ```
