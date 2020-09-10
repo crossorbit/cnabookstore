@@ -68,6 +68,7 @@
   - 상품 준비 시 배송 시작  
 * 배송을 시행하는 외부 시스템(물류 회사 시스템) 또는 배송 담당자는 배송 단계별로 상태는 변경한다. 변경된 배송 상태는 주문에 알려 반영한다.
 * 쿠폰 관리자는 고객 별 쿠폰을 발행할 수 있다
+  - customerId로 Coupon -> Customer 동기호출(Req/Res)
 * 고객이 주문을 생성 시 쿠폰 적용하면 쿠폰 정보가 있어여 한다
   - couponId 존재 시 Order -> Coupon 동기호출(Req/Res)
   - 주문 완료 되면 쿠폰 상태는 "Used(Not Available)"로 변경 된다(Pub/Sub)
@@ -163,6 +164,12 @@ MyCouponViewHandler.java 통해서 topic 메세지 수신하여 현행화
 
 ## Req-Res
 ```
+
+[Coupon 변경]
+1) external 서비스 내 CustomerService.java 추가하여 feignClient 설정
+2) coupon.java 의 저장 함수 내 로직 추가
+
+[Order 변경]
 1) external 서비스 내 CouponService.java 추가하여 feignClient 설정
 2) order.java 의 저장 함수 내 로직 추가
 
@@ -290,78 +297,75 @@ dev.azure.com 내 CI/CD 설정. Github Repository 연결 후 Github 소스 수�
 
 
 ## Circuit Breaker 점검
-
+Istio 설정 통해 적용 가능하나, 실습은 Netflix Hystrix로 
 ```
-Hystrix Command
+1. POM.xml 내 dependency 추가 : spring-cloud-starter-netflix-hystrix
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-netflix-hystrix</artifactId>
+		</dependency>
+2. CounponApplicaiton.java 내 @EnableCircuitBreaker 어노테이션 추가
+3. CounponController.java 내 로직 반영
+  - Hystrix Command
 	5000ms 이상 Timeout 발생 시 CircuitBearker 발동
 
-CircuitBeaker 발생
-	http http://delivery:8080/selectDeliveryInfo?deliveryId=1
-		- 잘못된 쿼리 수행 시 CircuitBeaker
-		- 10000ms(10sec) Sleep 수행
-		- 5000ms Timeout으로 CircuitBeaker 발동
-		- 10000ms(10sec) 
-```
+  - CircuitBeaker 발생
+	http http://coupon:8080/selectCouponInfo?couponId=0
+	- 잘못된 쿼리 수행 시 CircuitBeaker
+	- 10000ms(10sec) Sleep 수행
+	- 5000ms Timeout으로 CircuitBeaker 발동
+	- 10000ms(10sec) 
+	
+	
+	  @GetMapping("/selectCouponInfo")
+	  @HystrixCommand(fallbackMethod = "fallbackCoupon", commandProperties = {
+		  @HystrixProperty(name = "execution.isolation.thread.timeoutInMilliseconds", value = "5000"),
+		  @HystrixProperty(name = "circuitBreaker.sleepWindowInMilliseconds", value = "10000")
+	  })
+	  public @ResponseBody String selectCouponInfo(@RequestParam long couponId) throws InterruptedException {
+	    System.out.println("@@@ CircuitBreaker");
+	    if (couponId == 0) {
+	      System.out.println("@@@ CircuitBreaker");
+	      Thread.sleep(10000);
+	     return "CouponInfo_Failed";
+	    } else {
+	      System.out.println("@@@ CouponInfo OK");
+	      return "CouponInfo_Completed";
+	    }
+	  }
 
-```
-실행 결과
+	  public String fallbackCoupon(long couponId ){
+	    System.out.println("### fallback!!!");
+	    return "fallbackCoupon";
+	  }
 
-root@httpie:/# http http://delivery:8080/selectDeliveryInfo?deliveryId=1
+4. 실행 결과
+
+root@httpie:/# http http://coupon:8080/selectCouponInfo?couponId=1
 HTTP/1.1 200 
 Content-Length: 7
 Content-Type: text/plain;charset=UTF-8
 Date: Wed, 09 Sep 2020 04:27:53 GMT
 
-Shipped
+CouponInfo OK
 
-root@httpie:/# http http://delivery:8080/selectDeliveryInfo?deliveryId=0
+root@httpie:/# http http://coupon:8080/selectCouponInfo?couponId=0
 HTTP/1.1 200 
 Content-Length: 17
 Content-Type: text/plain;charset=UTF-8
 Date: Wed, 09 Sep 2020 04:28:03 GMT
 
-CircuitBreaker!!!
+CircuitBreaker
 
-root@httpie:/# http http://delivery:8080/selectDeliveryInfo?deliveryId=1
+root@httpie:/# http http://coupon:8080/selectCouponInfo?couponId=1
 HTTP/1.1 200 
 Content-Length: 17
 Content-Type: text/plain;charset=UTF-8
 Date: Wed, 09 Sep 2020 04:28:06 GMT
 
-CircuitBreaker!!!
+CircuitBreaker
 
 ```
-
-```
-소스 코드
-
-@GetMapping("/selectDeliveryInfo")
-  @HystrixCommand(fallbackMethod = "fallbackDelivery", commandProperties = {
-          @HystrixProperty(name = "execution.isolation.thread.timeoutInMilliseconds", value = "5000"),
-          @HystrixProperty(name = "circuitBreaker.sleepWindowInMilliseconds", value = "10000")
-  })
-  public String selectDeliveryInfo(@RequestParam long deliveryId) throws InterruptedException {
-
-   if (deliveryId <= 0) {
-    System.out.println("@@@ CircuitBreaker!!!");
-    Thread.sleep(10000);
-    //throw new RuntimeException("CircuitBreaker!!!");
-   } else {
-    Optional<Delivery> delivery = deliveryRepository.findById(deliveryId);
-    return delivery.get().getDeliveryStatus();
-   }
-
-   System.out.println("$$$ SUCCESS!!!");
-   return " SUCCESS!!!";
-  }
-
- private String fallbackDelivery(long deliveryId) {
-  System.out.println("### fallback!!!");
-  return "CircuitBreaker!!!";
- }
-```
-
-
 
 ## Autoscale 점검
 ### 설정 확인
@@ -453,6 +457,23 @@ livenessProbe:
   timeoutSeconds: 2
   periodSeconds: 5
   failureThreshold: 5
+```
+```
+ZombieController.java 추가
+	    @GetMapping({"/isHealthy"})
+	    public void zombie2() throws Exception {
+		if (flag)
+		    return;
+		else
+		    throw new Exception("zombie.....");
+	    }
+
+	    @GetMapping({"/makeZombie"})
+	    public void getStockInputs() {
+
+		flag = false;
+
+	    }
 ```
 ### 점검 순서 및 결과
 #### 1. 기동 확인
