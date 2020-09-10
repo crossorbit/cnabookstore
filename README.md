@@ -180,23 +180,15 @@ MyCouponViewHandler.java 통해서 topic 메세지 수신하여 현행화
 	@PrePersist
 	public void onPrePersist(){
 
-	if("null".equals(orderStatus) || orderStatus == null){
-	    orderStatus = "ORDERED";
-	}
+		if("null".equals(orderStatus) || orderStatus == null){
+		    orderStatus = "ORDERED";
+		}
 
-	// mappings goes here
-	try {
-	    Book book = OrderApplication.applicationContext.getBean(BookService.class)
-		    .queryBook(bookId);
-	}
-	catch(Exception e){
-	    orderStatus = "Book_Not_Verified";
-	}
-
-	if(couponId > 0){
-	    Coupon coupon = OrderApplication.applicationContext.getBean(CouponService.class)
-		    .queryCounpon(couponId);
-	}
+		Customer customer = OrderApplication.applicationContext.getBean(CustomerService.class)
+		   .queryCustomer(customerId);
+		}
+		
+		...
 	}
 
 [Order 변경]
@@ -219,9 +211,12 @@ MyCouponViewHandler.java 통해서 topic 메세지 수신하여 현행화
             orderStatus = "ORDERED";
         }
 	
-        Customer customer = OrderApplication.applicationContext.getBean(CustomerService.class)
-	   .queryCustomer(customerId);
-        }
+	if(couponId > 0){
+	    Coupon coupon = OrderApplication.applicationContext.getBean(CouponService.class)
+		    .queryCounpon(couponId);
+	}
+	
+	...
     }
 ```
 
