@@ -85,7 +85,7 @@
 
 ```
 ```
-![Alt text](CNA-model.PNG?raw=true "Optional Title")
+![Alt text](CNA-Model.PNG?raw=true "Optional Title")
 ```
 
 # 구현점검
@@ -181,6 +181,7 @@ application.yaml 파일 설정 변경
   siege -c10 -t60S -v http://gateway:8080/coupons/
 ```
 ### 점검 결과
+안정적인 CPU 상태에서는 Pod가 2개 떠 있으나, 부하 발생 후 HPA 설정 50%를 넘어가면 Pod 확장하면서 안정적으로 부하를 견뎌냄
 ![Alt text](HPA_test.PNG?raw=true "Optional Title")
 
 ## Readiness Probe 점검
