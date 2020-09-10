@@ -2,6 +2,7 @@
 도서 조회/주문/배송, 고객 등록, 결제 시스템
 
 # 체크 포인트
+```
 - 분석 설계
  - 이벤트스토밍:
     - 스티커 색상별 객체의 의미를 제대로 이해하여 헥사고날 아키텍처와의 연계 설계에 적절히 반영하고 있는가?
@@ -52,3 +53,209 @@
  - 무정지 운영 CI/CD (10)
    - Readiness Probe 의 설정과 Rolling update을 통하여 신규 버전이 완전히 서비스를 받을 수 있는 상태일때 신규버전의 서비스로 전환됨을 siege 등으로 증명
    - Contract Test : 자동화된 경계 테스트를 통하여 구현 오류나 API 계약위반를 미리 차단 가능한가?
+```
+
+# 서비스 시나리오
+```
+* 북 관리자는 판매하는 책의 종류와 보유 수량을 생성하고 수정할 수 있다.
+* 고객은 책의 주문과 취소가 가능하며 주문 정보의 수정은 없다.
+* 고객이 주문을 생성할 때 Book 정보가 있어야 한다. 
+  - Order -> BookInventory 동기호출
+* 주문 시에 재고가 없더라도 주문이 가능하다.
+  - 주문 상태는 “Ordered”
+* 주문 취소는 "Ordered" 상태일 경우만 가능하다.
+* 배송준비는 주문 정보를 받아 이뤄지며 재고가 부족한 경우, 책 입고가 이뤄져서 재고 수량이 충분한 경우에 배송 준비가 완료되었음을 알린다.
+* 배송은 주문 생성 정보를 받아서 배송을 준비하고 주문 상품 준비 정보를 받아서 배송을 시작하며 배송이 시작되었음을 주문에도 알린다.
+  - 주문 생성 시 배송 생성
+  - 상품 준비 시 배송 시작  
+* 배송을 시행하는 외부 시스템(물류 회사 시스템) 또는 배송 담당자는 배송 단계별로 상태는 변경한다. 변경된 배송 상태는 주문에 알려 반영한다.
+* 쿠폰 관리자는 고객 별 쿠폰을 발행할 수 있다
+* 고객이 주문을 생성 시 쿠폰 적용하면 쿠폰 정보가 있어여 한다
+  - couponId 존재 시 Order -> Coupon 동기호출(Req/Res)
+  - 주문 완료 되면 쿠폰 상태는 "Used(Not Available)"로 변경 된다(Pub/Sub)
+  - 주문 취소 되면 쿠폰 상태는 "Refund(Available)"로 변경 된다(Pub/Sub)
+* 쿠폰 발행/사용 이력은 myCoupon에서 조회할 수 있다 
+```
+
+# 이벤트 스토밍 & CNA 모델
+```
+```
+
+# 구현점검
+## 서비스 기동
+```
+```
+## Kafka 기동 및 모니터링 Consumer 연결
+```
+```
+
+## API 테스트
+```
+```
+
+## CQRS - myCoupon 로직
+```
+```
+
+## Req-Res
+```
+```
+
+## Pub-Sub
+```
+```
+
+## Gateway
+```
+```
+
+## CI/CD
+```
+```
+
+## Circuit Breaker
+```
+```
+
+
+## Autoscale 점검
+### 설정 확인
+```
+application.yaml 파일 설정 변경
+(https://k8s.io/examples/application/php-apache.yaml 파일 참고)
+ resources:
+  limits:
+    cpu: 500m
+  requests:
+    cpu: 200m
+```
+### 점검 순서
+```
+1. HPA 생성 및 설정
+	kubectl autoscale deploy bookinventory --min=1 --max=10 --cpu-percent=30
+	kubectl get hpa bookinventory -o yaml
+2. 모니터링 걸어놓고 확인
+	kubectl get hpa bookinventory -w
+	watch kubectl get deploy,po
+3. Siege 실행
+  siege -c10 -t60S -v http://gateway:8080/books/
+```
+### 점검 결과
+![Alt text](images/HPA_test.PNG?raw=true "Optional Title")
+
+## Readiness Probe 점검
+### 설정 확인
+```
+readinessProbe:
+  httpGet:
+    path: '/orders'
+    port: 8080
+  initialDelaySeconds: 12
+  timeoutSeconds: 2
+  periodSeconds: 5
+  failureThreshold: 10
+```
+### 점검 순서
+#### 1. Siege 실행
+```
+siege -c2 -t120S  -v 'http://gateway:8080/orders
+```
+#### 2. Readiness 설정 제거 후 배포
+#### 3. Siege 결과 Availability 확인(100% 미만)
+```
+Lifting the server siege...      done.
+
+Transactions:                    330 hits
+Availability:                  70.82 %
+Elapsed time:                 119.92 secs
+Data transferred:               0.13 MB
+Response time:                  0.02 secs
+Transaction rate:               2.75 trans/sec
+Throughput:                     0.00 MB/sec
+Concurrency:                    0.07
+Successful transactions:         330
+Failed transactions:             136
+Longest transaction:            1.75
+Shortest transaction:           0.00
+```
+#### 4. Readiness 설정 추가 후 배포
+
+#### 6. Siege 결과 Availability 확인(100%)
+```
+Lifting the server siege...      done.
+
+Transactions:                    443 hits
+Availability:                 100.00 %
+Elapsed time:                 119.60 secs
+Data transferred:               0.51 MB
+Response time:                  0.01 secs
+Transaction rate:               3.70 trans/sec
+Throughput:                     0.00 MB/sec
+Concurrency:                    0.04
+Successful transactions:         443
+Failed transactions:               0
+Longest transaction:            0.18
+Shortest transaction:           0.00
+ 
+FILE: /var/log/siege.log
+```
+
+## Liveness Probe 점검
+### 설정 확인
+```
+livenessProbe:
+  httpGet:
+    path: '/isHealthy'
+    port: 8080
+  initialDelaySeconds: 120
+  timeoutSeconds: 2
+  periodSeconds: 5
+  failureThreshold: 5
+```
+### 점검 순서 및 결과
+#### 1. 기동 확인
+```
+http http://gateway:8080/orders
+```
+#### 2. 상태 확인
+```
+oot@httpie:/# http http://order:8080/isHealthy
+HTTP/1.1 200 
+Content-Length: 0
+Date: Wed, 09 Sep 2020 02:14:22 GMT
+```
+
+#### 3. 상태 변경
+```
+root@httpie:/# http http://order:8080/makeZombie
+HTTP/1.1 200 
+Content-Length: 0
+Date: Wed, 09 Sep 2020 02:14:24 GMT
+```
+#### 4. 상태 확인
+```
+root@httpie:/# http http://order:8080/isHealthy
+HTTP/1.1 500 
+Connection: close
+Content-Type: application/json;charset=UTF-8
+Date: Wed, 09 Sep 2020 02:14:28 GMT
+Transfer-Encoding: chunked
+
+{
+    "error": "Internal Server Error", 
+    "message": "zombie.....", 
+    "path": "/isHealthy", 
+    "status": 500, 
+    "timestamp": "2020-09-09T02:14:28.338+0000"
+}
+```
+#### 5. Pod 재기동 확인
+```
+root@httpie:/# http http://order:8080/isHealthy
+http: error: ConnectionError: HTTPConnectionPool(host='order', port=8080): Max retries exceeded with url: /makeZombie (Caused by NewConnectionError('<requests.packages.urllib3.connection.HTTPConnection object at 0x7f5196111c50>: Failed to establish a new connection: [Errno 111] Connection refused',))
+
+root@httpie:/# http http://order:8080/isHealthy
+HTTP/1.1 200 
+Content-Length: 0
+Date: Wed, 09 Sep 2020 02:36:00 GMT
+```
